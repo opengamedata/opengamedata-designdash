@@ -84,6 +84,9 @@ const config: Config = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    // d3 ships ESM; mock for unit tests that pull in chart components
+    '^d3$': '<rootDir>/tests/__mocks__/d3.ts',
+    '^d3-(.*)$': '<rootDir>/tests/__mocks__/d3.ts',
   },
 
   // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader

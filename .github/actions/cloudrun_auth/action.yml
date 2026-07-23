@@ -1,0 +1,27 @@
+name: Authenticate to Google Cloud (Workload Identity Federation)
+description: Auth for Cloud Run CD via WIF (no JSON service-account keys)
+branding:
+  icon: cloud
+  color: blue
+inputs:
+  workload_identity_provider:
+    description: Full WIF provider resource name
+    required: true
+  service_account:
+    description: Deployer service account email
+    required: true
+  project_id:
+    description: GCP project ID
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ inputs.workload_identity_provider }}
+        service_account: ${{ inputs.service_account }}
+        project_id: ${{ inputs.project_id }}
+
+    - name: Set up gcloud
+      uses: google-github-actions/setup-gcloud@v2
