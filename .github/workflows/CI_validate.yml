@@ -1,5 +1,5 @@
 name: OGD Designer Dashboard - Validate
-run-name: ${{ format('{0} - {1}', github.workflow, github.event_name == 'pull_request' && format('PR #{0}', github.event.number) || github.event.head_commit.message || 'Manual Run') }}
+run-name: ${{ format('{0} - {1}', github.workflow, github.event_name) }}
 
 on:
   workflow_dispatch:
