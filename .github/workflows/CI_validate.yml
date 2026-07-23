@@ -1,0 +1,70 @@
+name: OGD Designer Dashboard - Validate
+run-name: ${{ format('{0} - {1}', github.workflow, github.event_name) }}
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/CI_validate.yml'
+      - '.github/actions/**'
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'next.config.js'
+      - 'Dockerfile'
+      - 'tsconfig.json'
+      - 'jest.config.ts'
+      - '.eslintrc.js'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/CI_validate.yml'
+      - '.github/actions/**'
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'next.config.js'
+      - 'Dockerfile'
+      - 'tsconfig.json'
+      - 'jest.config.ts'
+      - '.eslintrc.js'
+
+jobs:
+  validate:
+    name: Lint, test, and Cloud Run build
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: ${{ github.repository }}-${{ github.ref }}-${{ github.workflow }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Lint currently reports substantial pre-existing debt; keep as a signal
+      # without blocking Cloud Run build validation until the codebase is cleaned up.
+      - name: Lint
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Test
+        run: npm run test -- --ci --coverage=false --passWithNoTests
+
+      - name: Build (Cloud Run / standalone)
+        env:
+          DEPLOY_TARGET: cloudrun
+          NEXT_PUBLIC_OGD_FILES_API_URL: ${{ vars.CLOUDRUN_OGD_FILES_API_URL }}
+          NEXT_PUBLIC_GA_MEASUREMENT_ID: ${{ vars.CLOUDRUN_GA_ID }}
+        run: npm run build

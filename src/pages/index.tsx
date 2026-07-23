@@ -1,5 +1,4 @@
 import React, { useRef, useState } from 'react';
-import type { GetServerSideProps } from 'next';
 import GridLayout from '../components/layout/GridLayout';
 import AppChatPanel from '../components/chat/AppChatPanel';
 import DataSourceList from '../components/sidebar/data-management/DataSourceList';
@@ -11,13 +10,13 @@ import { Upload } from 'lucide-react';
 import useDataStore from '../store/useDataStore';
 import useLayoutStore from '../store/useLayoutStore';
 import { trackEvent } from '../lib/analytics';
-import { isAssistantEnabled } from '../lib/ai/assistantFeature';
 
-type HomePageProps = {
-  assistantEnabled: boolean;
-};
+// UI visibility uses a public build-time flag so static lab exports stay compatible.
+// /api/chat still enforces server-side AI_ASSISTANT_ENABLED at request time (Cloud Run).
+const assistantEnabled =
+  process.env.NEXT_PUBLIC_AI_ASSISTANT_ENABLED === 'true';
 
-const HomePage: React.FC<HomePageProps> = ({ assistantEnabled }) => {
+const HomePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState(0);
   const { setCurrentLayout, loadLayout } = useLayoutStore();
   const layoutDataStoreJsonFileInputRef = useRef<HTMLInputElement>(null);
@@ -152,9 +151,3 @@ const HomePage: React.FC<HomePageProps> = ({ assistantEnabled }) => {
 };
 
 export default HomePage;
-
-export const getServerSideProps: GetServerSideProps<HomePageProps> = async () => ({
-  props: {
-    assistantEnabled: isAssistantEnabled(),
-  },
-});

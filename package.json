@@ -62,6 +62,7 @@
     "cypress": "latest",
     "eslint": "latest",
     "eslint-config-airbnb": "latest",
+    "eslint-config-next": "^15.3.6",
     "eslint-config-prettier": "latest",
     "eslint-plugin-react": "latest",
     "identity-obj-proxy": "^3.0.0",

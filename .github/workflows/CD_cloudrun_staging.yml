@@ -1,0 +1,127 @@
+name: OGD Designer Dashboard - Cloud Run Staging
+run-name: ${{ format('{0} - {1}', github.workflow, github.event_name == 'push' && github.event.head_commit.message || 'Manual Run') }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/CD_cloudrun_staging.yml'
+      - '.github/actions/cloudrun_auth/**'
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'next.config.js'
+      - 'Dockerfile'
+      - '.dockerignore'
+
+env:
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ vars.GCP_REGION }}
+  ARTIFACT_REPO: ogd-dashboard
+  SERVICE_NAME: designdash-staging
+  IMAGE_NAME: app
+
+jobs:
+  deploy:
+    name: Build and deploy to Cloud Run (staging)
+    runs-on: ubuntu-22.04
+    environment: cloudrun-staging
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: ${{ github.repository }}-cloudrun-staging
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: ./.github/actions/cloudrun_auth
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set image tags
+        id: image
+        run: |
+          SHA="${GITHUB_SHA}"
+          REGISTRY="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REPO}"
+          echo "image=${REGISTRY}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag_sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "tag_env=staging" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        env:
+          AI_ASSISTANT_ENABLED: ${{ vars.CLOUDRUN_AI_ASSISTANT_ENABLED }}
+        run: |
+          IMAGE="${{ steps.image.outputs.image }}"
+          AI_FLAG="${AI_ASSISTANT_ENABLED:-false}"
+          docker build \
+            --build-arg DEPLOY_TARGET=cloudrun \
+            --build-arg NEXT_PUBLIC_OGD_FILES_API_URL="${{ vars.CLOUDRUN_OGD_FILES_API_URL }}" \
+            --build-arg NEXT_PUBLIC_GA_MEASUREMENT_ID="${{ vars.CLOUDRUN_GA_ID }}" \
+            --build-arg NEXT_PUBLIC_AI_ASSISTANT_ENABLED="${AI_FLAG}" \
+            -t "${IMAGE}:${{ steps.image.outputs.tag_sha }}" \
+            -t "${IMAGE}:${{ steps.image.outputs.tag_env }}" \
+            .
+          docker push "${IMAGE}:${{ steps.image.outputs.tag_sha }}"
+          docker push "${IMAGE}:${{ steps.image.outputs.tag_env }}"
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        env:
+          AI_ASSISTANT_ENABLED: ${{ vars.CLOUDRUN_AI_ASSISTANT_ENABLED }}
+          AI_PROVIDER: ${{ vars.CLOUDRUN_AI_PROVIDER }}
+          OPENAI_MODEL: ${{ vars.CLOUDRUN_OPENAI_MODEL }}
+          OGD_FILES_API_URL: ${{ vars.CLOUDRUN_OGD_FILES_API_URL }}
+          GA_ID: ${{ vars.CLOUDRUN_GA_ID }}
+        run: |
+          IMAGE="${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag_sha }}"
+
+          AI_ASSISTANT_ENABLED="${AI_ASSISTANT_ENABLED:-false}"
+
+          ENV_VARS="AI_ASSISTANT_ENABLED=${AI_ASSISTANT_ENABLED}"
+          ENV_VARS="${ENV_VARS},NEXT_PUBLIC_OGD_FILES_API_URL=${OGD_FILES_API_URL}"
+          ENV_VARS="${ENV_VARS},NEXT_PUBLIC_GA_MEASUREMENT_ID=${GA_ID}"
+
+          # Only wire OpenAI when the assistant is explicitly enabled (requires Secret Manager).
+          SECRET_FLAGS=()
+          if [ "${AI_ASSISTANT_ENABLED}" = "true" ]; then
+            AI_PROVIDER="${AI_PROVIDER:-openai}"
+            OPENAI_MODEL="${OPENAI_MODEL:-gpt-4o-mini}"
+            ENV_VARS="${ENV_VARS},AI_PROVIDER=${AI_PROVIDER}"
+            ENV_VARS="${ENV_VARS},OPENAI_MODEL=${OPENAI_MODEL}"
+            SECRET_FLAGS+=(--set-secrets="OPENAI_API_KEY=designdash-openai-api-key:latest")
+          fi
+
+          gcloud run deploy "${SERVICE_NAME}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE}" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=8080 \
+            --set-env-vars="${ENV_VARS}" \
+            "${SECRET_FLAGS[@]}" \
+            --quiet
+
+          URL="$(gcloud run services describe "${SERVICE_NAME}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --format='value(status.url)')"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "Deployed to ${URL}"
+
+      - name: Smoke test
+        run: |
+          curl -fS --retry 5 --retry-delay 3 --retry-all-errors \
+            "${{ steps.deploy.outputs.url }}/"
